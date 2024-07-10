@@ -1,7 +1,7 @@
 <script context="module" lang="ts">
     import { redirect } from '@sveltejs/kit';
-    import { getSubscriptionsByUserId } from '$lib/server/database/subscription.model';
-    import type { PageLoad } from './$types';
+    import { getSubscriptionsByUserId } from '$lib/server/database/subscriptions.model';
+    import type { PageLoad } from '$lib/types';
   
     export const load: PageLoad = async ({ locals }) => {
       const user = locals.user;
@@ -10,7 +10,7 @@
       }
   
       const subscriptions = await getSubscriptionsByUserId(user.id);
-      return { user, subscriptions };
+      return { props: { user, subscriptions } };
     };
   </script>
   

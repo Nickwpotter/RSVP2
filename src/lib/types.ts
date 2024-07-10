@@ -28,3 +28,8 @@ export type DefaultSeo = {
 export type Signin = typeof signinTable.$inferInsert;
 
 export type Seo = Partial<DefaultSeo>;
+
+// Custom PageLoad type for SvelteKit
+import type { LoadEvent } from '@sveltejs/kit';
+
+export type PageLoad = (event: LoadEvent) => Promise<{ props: Record<string, unknown> }>;
