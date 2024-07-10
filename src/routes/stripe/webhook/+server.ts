@@ -1,7 +1,7 @@
 import { json, type RequestEvent } from '@sveltejs/kit';
 import { stripeClient } from '../stripe';
 import { STRIPE_WEBHOOK_SECRET } from '$env/static/private';
-import { createNewSubscription, updateSubscription, deleteSubscription } from '$lib/subscription.model';
+import { createNewSubscription, updateSubscription, deleteSubscription } from '$lib/server/database/subscriptions.model';
 import { getUserByEmail } from '$lib/server/database/user.model';
 
 function toBuffer(ab: ArrayBuffer): Buffer {
