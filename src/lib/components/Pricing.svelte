@@ -11,8 +11,8 @@
 		included: ['Feature 1', 'Feature 2', 'Feature 3', 'Feature 4', 'Feature 5', 'Feature 6']
 	};
 
-	const priceIdBasic = 'price_1Hh1YgCZ6qsJgndgUxlF1bJ1';  // Replace with your actual Basic plan price ID
-	const priceIdPremium = 'price_1Hh1YgCZ6qsJgndgUxlF1bJ2';  // Replace with your actual Premium plan price ID
+	const priceIdBasic = 'price_1PatayEiOdndJtQHgiTDB5cD';  // Replace with your actual Basic plan price ID
+	const priceIdPremium = 'price_1PatdaEiOdndJtQHIWFW5EJV';  // Replace with your actual Premium plan price ID
 
 	async function handleCheckout(priceId: string) {
 		try {
