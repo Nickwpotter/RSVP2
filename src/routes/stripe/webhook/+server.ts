@@ -1,95 +1,98 @@
 import { json, type RequestEvent } from '@sveltejs/kit';
 import { stripeClient } from '../stripe';
-
 import { STRIPE_WEBHOOK_SECRET } from '$env/static/private';
+import { createNewSubscription, updateSubscription, deleteSubscription } from '$lib/subscription.model';
+import { getUserByEmail } from '$lib/server/database/user.model';
 
 function toBuffer(ab: ArrayBuffer): Buffer {
-	const buf = Buffer.alloc(ab.byteLength);
-	const view = new Uint8Array(ab);
-	for (let i = 0; i < buf.length; i++) {
-		buf[i] = view[i];
-	}
-	return buf;
+    const buf = Buffer.alloc(ab.byteLength);
+    const view = new Uint8Array(ab);
+    for (let i = 0; i < buf.length; i++) {
+        buf[i] = view[i];
+    }
+    return buf;
 }
 
 export async function POST(event: RequestEvent) {
-	// export async function post(req: Request<any, { data: any; type: any }>): Promise<Response> {
-	const req = event.request;
-	// let data;
-	let eventType: string;
-	if (STRIPE_WEBHOOK_SECRET) {
-		// let event;
-		const _rawBody = await req.arrayBuffer();
-		const payload = toBuffer(_rawBody);
+    const req = event.request;
+    let eventType: string;
+    let stripeEvent;
 
-		// SvelteKit may sometimes modify the incoming request body
-		// However, Stripe requires the exact body it sends to construct an Event
-		// To avoid unintended SvelteKit modifications, we can use this workaround:
-		// const payload = Buffer.from(req.rawBody);
-		const signature = req.headers.get('stripe-signature') as string;
-		try {
-			const event = stripeClient.webhooks.constructEvent(payload, signature, STRIPE_WEBHOOK_SECRET);
-			//const data = event.data;
-			eventType = event.type;
-		} catch (err) {
-			console.error(err);
-			return {
-				status: 500,
-				headers: {},
-				body: JSON.stringify({
-					error: err
-				})
-			};
-		}
-	} else {
-		// data = req.body.data;
-		eventType = ((await req.formData()).get('type') as string).toString();
-	}
+    if (STRIPE_WEBHOOK_SECRET) {
+        const _rawBody = await req.arrayBuffer();
+        const payload = toBuffer(_rawBody);
+        const signature = req.headers.get('stripe-signature') as string;
 
-	switch (eventType) {
-		case 'checkout.session.completed':
-			// Payment is successful and the subscription is created.
-			// You should provision the subscription and save the customer ID to your database.
-			console.log('Event: checkout.session.completed');
-			break;
-		case 'invoice.paid':
-			// Continue to provision the subscription as payments continue to be made.
-			// Store the status in your database and check when a user accesses your service.
-			// This approach helps you avoid hitting rate limits.
-			console.log('Event: invoice.paid');
-			break;
-		case 'invoice.payment_failed':
-			// The payment failed or the customer does not have a valid payment method.
-			// The subscription becomes past_due. Notify your customer and send them to the
-			// customer portal to update their payment information.
-			console.log('Event: invoice.payment_failed');
-			break;
+        try {
+            stripeEvent = stripeClient.webhooks.constructEvent(payload, signature, STRIPE_WEBHOOK_SECRET);
+            eventType = stripeEvent.type;
+        } catch (err) {
+            console.error('Webhook signature verification failed.', err.message);
+            return json({ error: 'Webhook Error: Invalid signature' }, { status: 400 });
+        }
+    } else {
+        const body = await req.json();
+        eventType = body.type;
+        stripeEvent = body; // Directly use the body as the event if no secret is provided
+    }
 
-		case 'customer.subscription.updated':
-			// Listen to this to monitor updates to the subscription quantity.
-			// When you receive this event, check the subscription.items.data[0].quantity
-			// attribute to find the quantity the customer is subscribed to.
-			// Then, grant access to the new quantity.
+    switch (eventType) {
+        case 'checkout.session.completed':
+            const session = stripeEvent.data.object;
+            const userEmail = session.customer_email;
+            const user = await getUserByEmail(userEmail);
+            
+            if (user) {
+                const newSubscription = {
+                    id: session.subscription,
+                    user_id: user.id,
+                    plan_id: session.display_items[0].price.id,
+                    start_date: Math.floor(Date.now() / 1000),
+                    status: 'active',
+                    stripe_subscription_id: session.subscription
+                };
+                await createNewSubscription(newSubscription);
+            }
+            console.log('Event: checkout.session.completed');
+            break;
 
-			console.log('Event: customer.subscription.updated');
-			break;
-		case 'customer.subscription.deleted':
-			// Listen to this to monitor subscription cancellations. When you receive this event,
-			// revoke the customer’s access to the product.If you configure the portal to cancel
-			// subscriptions at the end of a billing period, listen to the customer.subscription.
-			// updated event to be notified of cancellations before they occur.
-			// If cancel_at_period_end is true, the subscription is canceled at the end of its billing period.
-			// If a customer changes their mind, they can reactivate their subscription prior to
-			// the end of the billing period.When they do this, a customer.subscription.updated
-			// event is sent.Check that cancel_at_period_end is false to confirm that they
-			// reactivated their subscription.
+        case 'invoice.paid':
+            const invoice = stripeEvent.data.object;
+            const paidSubscription = {
+                status: 'active'
+            };
+            await updateSubscription(invoice.subscription, paidSubscription);
+            console.log('Event: invoice.paid');
+            break;
 
-			console.log('Event: customer.subscription.deleted');
-			break;
-		default:
-			// Unhandled event type
-			console.log(eventType);
-	}
+        case 'invoice.payment_failed':
+            const failedInvoice = stripeEvent.data.object;
+            const failedSubscription = {
+                status: 'past_due'
+            };
+            await updateSubscription(failedInvoice.subscription, failedSubscription);
+            console.log('Event: invoice.payment_failed');
+            break;
 
-	return json({ received: true });
+        case 'customer.subscription.updated':
+            const updatedSubscriptionData = stripeEvent.data.object;
+            const updatedSubscription = {
+                plan_id: updatedSubscriptionData.items.data[0].price.id,
+                status: updatedSubscriptionData.status
+            };
+            await updateSubscription(updatedSubscriptionData.id, updatedSubscription);
+            console.log('Event: customer.subscription.updated');
+            break;
+
+        case 'customer.subscription.deleted':
+            const deletedSubscriptionId = stripeEvent.data.object.id;
+            await deleteSubscription(deletedSubscriptionId);
+            console.log('Event: customer.subscription.deleted');
+            break;
+
+        default:
+            console.log(`Unhandled event type ${eventType}`);
+    }
+
+    return json({ received: true });
 }
