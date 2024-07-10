@@ -17,6 +17,8 @@ export async function GET(event: RequestEvent): Promise<Response> {
 		httpOnly: true,
 		maxAge: 60 * 10 // 10 min
 	});
+	console.log(codeVerifier);
+	console.log(url);
 
 	event.cookies.set('google_oauth_state', state, {
 		path: '/',
